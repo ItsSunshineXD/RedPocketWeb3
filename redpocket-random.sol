@@ -2,20 +2,25 @@
 pragma solidity ^0.8.36;
 
 contract RedPocket {
-    address public immutable signer; // 公钥对应地址
-    uint256 public claimCount; // 已领取次数
-    uint256 public constant MAX_CLAIMS = 5; // 最多可领取次数
-    uint256 public constant MIN_AMOUNT = 1e12; // 保底金额
+    address public owner; // 合约所有者地址
+    address public signer; // 公钥对应地址
+    uint256 nonce;
+    uint256 public remainClaims; // 剩余可领取次数
+    uint256 constant minAmount = 1e12; // 保底金额
 
-    constructor(address _signer) payable {
-        signer = _signer; // 记录公钥对应地址
+    event claimed(address user, uint256 amount, uint256 remainClaims);
+    event refilled(uint256 balance, uint256 remainClaims);
+
+    constructor(address _owner, address _signer, uint8 _remainClaims) payable {
+        signer = _signer; // 初始化公钥对应地址
+        owner = _owner; // 初始化合约所有者地址
+        remainClaims = _remainClaims; // 初始化剩余可领取次数
     }
 
-    function claim(uint256 nonce, bytes calldata signature) external {
-        require(claimCount < MAX_CLAIMS, "E1"); // 已领完
-        require(nonce == claimCount, "E2"); // Nonce错误
-        require(address(this).balance > 0, "E3"); // 合约余额不足
-        require(signature.length == 65, "E4"); // 签名长度错误
+    function claim(bytes calldata signature) external {
+        require(remainClaims > 0, "E1"); // 已领完
+        require(address(this).balance > 0, "E2"); // 智能合约余额不足
+        require(signature.length == 65, "E3"); // 签名长度错误
 
         // 拆分签名为r s v
         bytes32 r;
@@ -44,25 +49,22 @@ contract RedPocket {
 
         // 验签
         address recovered = ecrecover(ethSignedHash, v, r, s);
-        require(recovered == signer, "E5"); // 签名验证失败
+        require(recovered == signer, "E4"); // 签名验证失败
 
-        // 二倍均值法随机拼手气 最多可领平均值的二倍 最少能拿到保底
-        uint256 remainingClaims = MAX_CLAIMS - claimCount; // 剩余可领取次数
-        uint256 remaining = address(this).balance; // 剩余余额
         uint256 amount; // 随机领取数额(单位wei)
 
-        if (remainingClaims == 1) { // 若只剩一次领取次数 领走剩余全部
-            amount = remaining;
-        } else { // 若还能领大于一次 随机拼手气
-            uint256 avg = remaining / remainingClaims;
+        if (remainClaims == 1) { // 若只剩一次领取次数 领走剩余全部
+            amount = remainClaims;
+        } else { // 若还能领大于一次 随机拼手气 最多可领平均值的二倍 最少能拿到保底 且保证其他用户至少拿到保底
+            uint256 avg = address(this).balance / remainClaims;
             uint256 maxAmount = avg * 2;
 
-            uint256 minLeave = MIN_AMOUNT * (remainingClaims - 1);
-            if (maxAmount > remaining - minLeave) {
-                maxAmount = remaining - minLeave;
+            uint256 minLeave = minAmount * (remainClaims - 1);
+            if (maxAmount > remainClaims - minLeave) {
+                maxAmount = remainClaims - minLeave;
             }
-            if (maxAmount < MIN_AMOUNT) {
-                maxAmount = MIN_AMOUNT;
+            if (maxAmount < minAmount) {
+                maxAmount = minAmount;
             }
 
             // 随机生成随机数种子
@@ -74,13 +76,26 @@ contract RedPocket {
                 r,
                 s
             )));
-            uint256 range = maxAmount - MIN_AMOUNT + 1;
-            amount = MIN_AMOUNT + (randSeed % range); // 计算本次领取数额
+            uint256 range = maxAmount - minAmount + 1;
+            amount = minAmount + (randSeed % range); // 计算本次领取数额
         }
-        claimCount += 1;
         (bool success, ) = payable(msg.sender).call{value: amount}(""); // 转账amount数量ETH
         require(success, "E6"); // 未知原因交易失败
+        remainClaims -= 1;
+        emit claimed(msg.sender, amount, remainClaims);
     }
 
+    // OWNER ONLY
+    function transferOwnership(address newOwner) external {
+        owner = newOwner;
+    }
+
+    // OWNER ONLY
+    function refill(uint256 claimCount) external payable {
+        remainClaims = claimCount;
+        emit refilled(address(this).balance, remainClaims);
+    }
+
+    // 允许捐赠
     receive() external payable {}
 }
