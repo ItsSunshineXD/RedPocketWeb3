@@ -11,7 +11,7 @@ contract RedPocket {
     event claimed(address user, uint256 amount, uint256 remainClaims);
     event refilled(uint256 balance, uint256 remainClaims);
 
-    constructor(address _owner, address _signer, uint8 _remainClaims) payable {
+    constructor(address _owner, address _signer, uint256 _remainClaims) payable {
         signer = _signer; // 初始化公钥对应地址
         owner = _owner; // 初始化合约所有者地址
         remainClaims = _remainClaims; // 初始化剩余可领取次数
@@ -80,7 +80,7 @@ contract RedPocket {
             amount = minAmount + (randSeed % range); // 计算本次领取数额
         }
         (bool success, ) = payable(msg.sender).call{value: amount}(""); // 转账amount数量ETH
-        require(success, "E6"); // 未知原因交易失败
+        require(success, "E5"); // 未知原因交易失败
         remainClaims--;
         nonce++;
         emit claimed(msg.sender, amount, remainClaims);
@@ -88,13 +88,14 @@ contract RedPocket {
 
     // OWNER ONLY
     function transferOwnership(address newOwner) external {
-        require(msg.sender == owner, "E5");
+        require(msg.sender == owner, "E6");
         owner = newOwner;
     }
 
     // OWNER ONLY
     function refill(uint256 claimCount) external payable {
-        require(msg.sender == owner, "E5");
+        require(msg.sender == owner, "E6");
+        require(address(this).balance > minAmount * claimCount, "E7");
         remainClaims = claimCount;
         emit refilled(address(this).balance, remainClaims);
     }
