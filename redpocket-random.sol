@@ -54,14 +54,14 @@ contract RedPocket {
         uint256 amount; // 随机领取数额(单位wei)
 
         if (remainClaims == 1) { // 若只剩一次领取次数 领走剩余全部
-            amount = remainClaims;
+            amount = address(this).balance;
         } else { // 若还能领大于一次 随机拼手气 最多可领平均值的二倍 最少能拿到保底 且保证其他用户至少拿到保底
             uint256 avg = address(this).balance / remainClaims;
             uint256 maxAmount = avg * 2;
 
             uint256 minLeave = minAmount * (remainClaims - 1);
-            if (maxAmount > remainClaims - minLeave) {
-                maxAmount = remainClaims - minLeave;
+            if (maxAmount > address(this).balance - minLeave) {
+                maxAmount = address(this).balance - minLeave;
             }
             if (maxAmount < minAmount) {
                 maxAmount = minAmount;
@@ -81,17 +81,20 @@ contract RedPocket {
         }
         (bool success, ) = payable(msg.sender).call{value: amount}(""); // 转账amount数量ETH
         require(success, "E6"); // 未知原因交易失败
-        remainClaims -= 1;
+        remainClaims--;
+        nonce++;
         emit claimed(msg.sender, amount, remainClaims);
     }
 
     // OWNER ONLY
     function transferOwnership(address newOwner) external {
+        require(msg.sender == owner, "E5");
         owner = newOwner;
     }
 
     // OWNER ONLY
     function refill(uint256 claimCount) external payable {
+        require(msg.sender == owner, "E5");
         remainClaims = claimCount;
         emit refilled(address(this).balance, remainClaims);
     }
